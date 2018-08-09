@@ -1,8 +1,4 @@
 """
-Filename: ecdf.py
-
-Authors: Thomas Sargent, John Stachurski
-
 Implements the empirical cumulative distribution function given an array
 of observations.
 
@@ -11,7 +7,7 @@ of observations.
 import numpy as np
 
 
-class ECDF(object):
+class ECDF:
     """
     One-dimensional empirical distribution function given a vector of
     observations.

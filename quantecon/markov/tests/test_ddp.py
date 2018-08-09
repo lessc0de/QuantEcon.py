@@ -1,7 +1,4 @@
 """
-Filename: test_ddp.py
-Author: Daisuke Oyama
-
 Tests for markov/ddp.py
 
 """
@@ -10,9 +7,9 @@ from __future__ import division
 import numpy as np
 import scipy.sparse as sparse
 from numpy.testing import assert_array_equal, assert_allclose, assert_raises
-from nose.tools import eq_, ok_
+from nose.tools import ok_
 
-from quantecon.markov import DiscreteDP
+from quantecon.markov import DiscreteDP, backward_induction
 
 
 class TestDiscreteDP:
@@ -126,10 +123,7 @@ def test_ddp_beta_0():
     v_init = [0, 0, 0]
 
     ddp0 = DiscreteDP(R, Q, beta)
-    s_indices, a_indices = np.where(R > -np.inf)
-    R_sa = R[s_indices, a_indices]
-    Q_sa = Q[s_indices, a_indices]
-    ddp1 = DiscreteDP(R_sa, Q_sa, beta, s_indices, a_indices)
+    ddp1 = ddp0.to_sa_pair_form()
     methods = ['vi', 'pi', 'mpi']
 
     for ddp in [ddp0, ddp1]:
@@ -140,7 +134,6 @@ def test_ddp_beta_0():
 
 
 def test_ddp_sorting():
-    n, m = 2, 2
     beta = 0.95
 
     # Sorted
@@ -177,6 +170,43 @@ def test_ddp_sorting():
         assert_array_equal(ddp_Q, Q)
 
 
+class TestFiniteHorizon:
+    def setUp(self):
+        # From Puterman 2005, Section 3.2, Section 4.6.1
+        # "single-product stochastic inventory control"
+        s_indices = [0, 0, 0, 0, 1, 1, 1, 2, 2, 3]
+        a_indices = [0, 1, 2, 3, 0, 1, 2, 0, 1, 0]
+        R = [ 0., -1., -2., -5.,  5.,  0., -3.,  6., -1.,  5.]
+        Q = [[ 1.  ,  0.  ,  0.  ,  0.  ],
+             [ 0.75,  0.25,  0.  ,  0.  ],
+             [ 0.25,  0.5 ,  0.25,  0.  ],
+             [ 0.  ,  0.25,  0.5 ,  0.25],
+             [ 0.75,  0.25,  0.  ,  0.  ],
+             [ 0.25,  0.5 ,  0.25,  0.  ],
+             [ 0.  ,  0.25,  0.5 ,  0.25],
+             [ 0.25,  0.5 ,  0.25,  0.  ],
+             [ 0.  ,  0.25,  0.5 ,  0.25],
+             [ 0.  ,  0.25,  0.5 ,  0.25]]
+        beta = 1
+        self.ddp = DiscreteDP(R, Q, beta, s_indices, a_indices)
+
+    def test_backward_induction(self):
+        T = 3
+        # v_T = np.zeors(self.ddp.n)
+        vs_expected = [[67/16, 129/16, 194/16, 227/16],
+                       [2, 25/4, 10, 21/2],
+                       [0, 5, 6, 5],
+                       [0, 0, 0, 0]]
+        sigmas_expected = [[3, 0, 0, 0],
+                           [2, 0, 0, 0],
+                           [0, 0, 0, 0]]
+
+        vs, sigmas = backward_induction(self.ddp, T)
+
+        assert_allclose(vs, vs_expected)
+        assert_array_equal(sigmas, sigmas_expected)
+
+
 def test_ddp_negative_inf_error():
     n, m = 3, 2
     R = np.array([[0, 1], [0, -np.inf], [-np.inf, -np.inf]])
@@ -201,8 +231,6 @@ def test_ddp_negative_inf_error():
 
 
 def test_ddp_no_feasibile_action_error():
-    n, m = 3, 2
-
     # No action is feasible at state 1
     s_indices = [0, 0, 2, 2]
     a_indices = [0, 1, 0, 1]
@@ -211,6 +239,82 @@ def test_ddp_no_feasibile_action_error():
     beta = 0.95
 
     assert_raises(ValueError, DiscreteDP, R, Q, beta, s_indices, a_indices)
+
+
+def test_ddp_beta_1_not_implemented_error():
+    n, m = 3, 2
+    R = np.array([[0, 1], [1, 0], [0, 1]])
+    Q = np.empty((n, m, n))
+    Q[:] = 1/n
+    beta = 1
+
+    ddp0 = DiscreteDP(R, Q, beta)
+    ddp1 = ddp0.to_sa_pair_form()
+    ddp2 = ddp0.to_sa_pair_form(sparse=False)
+
+    solution_methods = \
+        ['value_iteration', 'policy_iteration', 'modified_policy_iteration']
+
+    for ddp in [ddp0, ddp1, ddp2]:
+        assert_raises(NotImplementedError, ddp.evaluate_policy, np.zeros(n))
+        for method in solution_methods:
+            assert_raises(NotImplementedError, getattr(ddp, method))
+
+
+def test_ddp_to_sa_and_to_product():
+    n, m = 3, 2
+    R = np.array([[0, 1], [1, 0], [-np.inf, 1]])
+    Q = np.empty((n, m, n))
+    Q[:] = 1/n
+    Q[0, 0, 0] = 0
+    Q[0, 0, 1] = 2/n
+    beta = 0.95
+
+    sparse_R = np.array([0, 1, 1, 0, 1])
+    _Q = np.full((5, 3), 1/3)
+    _Q[0, 0] = 0
+    _Q[0, 1] = 2/n
+    sparse_Q = sparse.coo_matrix(_Q)
+
+    ddp = DiscreteDP(R, Q, beta)
+    ddp_sa = ddp.to_sa_pair_form()
+    ddp_sa2 = ddp_sa.to_sa_pair_form()
+    ddp_sa3 = ddp.to_sa_pair_form(sparse=False)
+    ddp2 = ddp_sa.to_product_form()
+    ddp3 = ddp_sa2.to_product_form()
+    ddp4 = ddp.to_product_form()
+
+    # make sure conversion worked
+    for ddp_s in [ddp_sa, ddp_sa2, ddp_sa3]:
+        assert_allclose(ddp_s.R, sparse_R)
+        # allcose doesn't work on sparse
+        np.max(np.abs((sparse_Q - ddp_s.Q))) < 1e-15
+        assert_allclose(ddp_s.beta, beta)
+
+    # these two will have probability 0 in state 2, action 0 b/c
+    # of the infeasiability in R
+    funky_Q = np.empty((n, m, n))
+    funky_Q[:] = 1/n
+    funky_Q[0, 0, 0] = 0
+    funky_Q[0, 0, 1] = 2/n
+    funky_Q[2, 0, :] = 0
+    for ddp_f in [ddp2, ddp3]:
+        assert_allclose(ddp_f.R, ddp.R)
+        assert_allclose(ddp_f.Q, funky_Q)
+        assert_allclose(ddp_f.beta, ddp.beta)
+
+    # this one is just the original one.
+    assert_allclose(ddp4.R, ddp.R)
+    assert_allclose(ddp4.Q, ddp.Q)
+    assert_allclose(ddp4.beta, ddp.beta)
+
+    for method in ["pi", "vi", "mpi"]:
+        sol1 = ddp.solve(method=method)
+        for ddp_other in [ddp_sa, ddp_sa2, ddp_sa3, ddp2, ddp3, ddp4]:
+            sol2 = ddp_other.solve(method=method)
+
+            for k in ["v", "sigma", "num_iter"]:
+                assert_allclose(sol1[k], sol2[k])
 
 
 if __name__ == '__main__':

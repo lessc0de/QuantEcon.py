@@ -1,25 +1,23 @@
 """
-Filename: matrix_eqn.py
-
-This files holds several functions that are used to solve matrix
+This file holds several functions that are used to solve matrix
 equations.  Currently has functionality to solve:
 
 * Lyapunov Equations
-* Ricatti Equations
+* Riccati Equations
 
-TODO: See issue 47 on github repository, should add support for
+TODO: 1. See issue 47 on github repository, should add support for
       Sylvester equations
-
+      2. Fix warnings from checking conditioning of matrices
 """
 from __future__ import division
 import numpy as np
-import warnings
 from numpy import dot
 from numpy.linalg import solve
 from scipy.linalg import solve_discrete_lyapunov as sp_solve_discrete_lyapunov
+from scipy.linalg import solve_discrete_are as sp_solve_discrete_are
 
-# == Suppress warnings from checking conditioning of matrices == #
-warnings.simplefilter("ignore", RuntimeWarning)
+
+EPS = np.finfo(float).eps
 
 
 def solve_discrete_lyapunov(A, B, max_it=50, method="doubling"):
@@ -30,13 +28,15 @@ def solve_discrete_lyapunov(A, B, max_it=50, method="doubling"):
 
         AXA' - X + B = 0
 
-    X is computed by using a doubling algorithm. In particular, we
-    iterate to convergence on X_j with the following recursions for j =
-    1, 2,... starting from X_0 = B, a_0 = A:
+    :math:`X` is computed by using a doubling algorithm. In particular, we
+    iterate to convergence on :math:`X_j` with the following recursions for
+    :math:`j = 1, 2, \dots` starting from :math:`X_0 = B`, :math:`a_0 = A`:
 
     .. math::
 
         a_j = a_{j-1} a_{j-1}
+
+    .. math::
 
         X_j = X_{j-1} + a_{j-1} X_{j-1} a_{j-1}'
 
@@ -59,9 +59,9 @@ def solve_discrete_lyapunov(A, B, max_it=50, method="doubling"):
         approach.
 
     Returns
-    ========
+    -------
     gamma1: array_like(float, ndim=2)
-        Represents the value V
+        Represents the value :math:`X`
 
     """
     if method == "doubling":
@@ -97,18 +97,19 @@ def solve_discrete_lyapunov(A, B, max_it=50, method="doubling"):
     return gamma1
 
 
-def solve_discrete_riccati(A, B, Q, R, N=None, tolerance=1e-10, max_iter=500):
+def solve_discrete_riccati(A, B, Q, R, N=None, tolerance=1e-10, max_iter=500,
+                           method="doubling"):
     """
     Solves the discrete-time algebraic Riccati equation
 
+    .. math::
+
         X = A'XA - (N + B'XA)'(B'XB + R)^{-1}(N + B'XA) + Q
 
-    via a modified structured doubling algorithm.  An explanation of the
-    algorithm can be found in the reference below.
-
-    Note that SciPy also has a discrete riccati equation solver.  However it
-    cannot handle the case where R is not invertible, or when N is nonzero.
-    Both of these cases can be handled in the algorithm implemented below.
+    Computation is via a modified structured doubling algorithm, an
+    explanation of which can be found in the reference below, if
+    `method="doubling"` (default), and via a QZ decomposition method by
+    calling `scipy.linalg.solve_discrete_are` if `method="qz"`.
 
     Parameters
     ----------
@@ -126,11 +127,16 @@ def solve_discrete_riccati(A, B, Q, R, N=None, tolerance=1e-10, max_iter=500):
         The tolerance level for convergence
     max_iter : scalar(int), optional(default=500)
         The maximum number of iterations allowed
+    method : string, optional(default="doubling")
+        Describes the solution method to use.  If it is "doubling" then
+        uses the doubling algorithm to solve, if it is "qz" then it uses
+        `scipy.linalg.solve_discrete_are` (in which case `tolerance` and
+        `max_iter` are irrelevant).
 
     Returns
     -------
     X : array_like(float, ndim=2)
-        The fixed point of the Riccati equation; a  k x k array
+        The fixed point of the Riccati equation; a k x k array
         representing the approximate solution
 
     References
@@ -141,6 +147,11 @@ def solve_discrete_riccati(A, B, Q, R, N=None, tolerance=1e-10, max_iter=500):
     (2010): pp-935.
 
     """
+    methods = ['doubling', 'qz']
+    if method not in methods:
+        msg = "Check your method input. Should be {} or {}".format(*methods)
+        raise ValueError(msg)
+
     # == Set up == #
     error = tolerance + 1
     fail_msg = "Convergence failed after {} iterations."
@@ -154,15 +165,20 @@ def solve_discrete_riccati(A, B, Q, R, N=None, tolerance=1e-10, max_iter=500):
     else:
         N = np.atleast_2d(N)
 
+    if method == 'qz':
+        X = sp_solve_discrete_are(A, B, Q, R, s=N.T)
+        return X
+
+    # if method == 'doubling'
     # == Choose optimal value of gamma in R_hat = R + gamma B'B == #
     current_min = np.inf
-    candidates = (0.0, 0.01, 0.1, 0.25, 0.5, 1.0, 2.0, 10.0, 100.0, 10e5)
+    candidates = (0.01, 0.1, 0.25, 0.5, 1.0, 2.0, 10.0, 100.0, 10e5)
     BB = dot(B.T, B)
     BTA = dot(B.T, A)
     for gamma in candidates:
         Z = R + gamma * BB
         cn = np.linalg.cond(Z)
-        if np.isfinite(cn):
+        if cn * EPS < 1:
             Q_tilde = - Q + dot(N.T, solve(Z, N + gamma * BTA)) + gamma * I
             G0 = dot(B, solve(Z, B.T))
             A0 = dot(I - gamma * G0, A) - dot(B, solve(Z, N))

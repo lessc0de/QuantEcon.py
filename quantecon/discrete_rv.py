@@ -1,18 +1,16 @@
 """
-Filename: discrete_rv.py
-
-Authors: Thomas Sargent, John Stachurski
-
 Generates an array of draws from a discrete random variable with a
 specified vector of probabilities.
 
 """
 
+import numpy as np
 from numpy import cumsum
 from numpy.random import uniform
+from .util import check_random_state
 
 
-class DiscreteRV(object):
+class DiscreteRV:
     """
     Generates an array of draws from a discrete random variable with
     vector of probabilities given by q.
@@ -20,18 +18,18 @@ class DiscreteRV(object):
     Parameters
     ----------
     q : array_like(float)
-        Nonnegative numbers that sum to 1
+        Nonnegative numbers that sum to 1.
 
     Attributes
     ----------
-    q : see Parameters
+    q : see Parameters.
     Q : array_like(float)
-        The cumulative sum of q
+        The cumulative sum of q.
 
     """
 
     def __init__(self, q):
-        self._q = q
+        self._q = np.asarray(q)
         self.Q = cumsum(q)
 
     def __repr__(self):
@@ -54,10 +52,10 @@ class DiscreteRV(object):
         Setter method for q.
 
         """
-        self._q = val
+        self._q = np.asarray(val)
         self.Q = cumsum(val)
 
-    def draw(self, k=1):
+    def draw(self, k=1, random_state=None):
         """
         Returns k draws from q.
 
@@ -69,10 +67,19 @@ class DiscreteRV(object):
         k : scalar(int), optional
             Number of draws to be returned
 
+        random_state : int or np.random.RandomState, optional
+            Random seed (integer) or np.random.RandomState instance to set
+            the initial state of the random number generator for
+            reproducibility. If None, a randomly initialized RandomState is
+            used.
+
         Returns
         -------
         array_like(int)
             An array of k independent draws from q
 
         """
-        return self.Q.searchsorted(uniform(0, 1, size=k))
+        random_state = check_random_state(random_state)
+
+        return self.Q.searchsorted(random_state.uniform(0, 1, size=k),
+                                   side='right')

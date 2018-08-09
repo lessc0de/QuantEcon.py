@@ -1,8 +1,5 @@
 """
-tests for quantecon.compute_fp module
-
-@author : Spencer Lyon
-@date : 2014-07-31
+Tests for compute_fp.py
 
 References
 ----------
@@ -14,6 +11,8 @@ TODO: add multivariate case
 """
 from __future__ import division
 import unittest
+import numpy as np
+from nose.tools import ok_, raises
 from quantecon import compute_fixed_point
 
 
@@ -68,3 +67,75 @@ class TestFPLogisticEquation(unittest.TestCase):
             # This should not converge  (b/c unique fp is 0.0)
             self.assertFalse(abs(compute_fixed_point(f, i, **self.kwargs)-fp)
                              < 1e-4)
+
+    def test_imitation_game_method(self):
+        "compute_fp: Test imitation game method"
+        method = 'imitation_game'
+        error_tol = self.kwargs['error_tol']
+
+        for mu in [self.mu_1, self.mu_2]:
+            for i in self.unit_inverval:
+                fp_computed = compute_fixed_point(self.T, i, method=method,
+                                                  mu=mu, **self.kwargs)
+                self.assertTrue(
+                    abs(self.T(fp_computed, mu=mu) - fp_computed) <= error_tol
+                )
+
+            # numpy array input
+            i = np.asarray(self.unit_inverval)
+            fp_computed = compute_fixed_point(self.T, i, method=method, mu=mu,
+                                              **self.kwargs)
+            self.assertTrue(
+                abs(self.T(fp_computed, mu=mu) - fp_computed).max() <=
+                error_tol
+            )
+
+
+class TestComputeFPContraction():
+    def setUp(self):
+        self.coeff = 0.5
+        self.methods = ['iteration', 'imitation_game']
+
+    def f(self, x):
+        return self.coeff * x
+
+    def test_num_iter_one(self):
+        init = 1.
+        error_tol = self.coeff
+
+        for method in self.methods:
+            fp_computed = compute_fixed_point(self.f, init,
+                                              error_tol=error_tol,
+                                              method=method)
+            ok_(fp_computed <= error_tol * 2)
+
+    def test_num_iter_large(self):
+        init = 1.
+        buff_size = 2**8  # buff_size in 'imitation_game'
+        max_iter = buff_size + 2
+        error_tol = self.coeff**max_iter
+
+        for method in self.methods:
+            fp_computed = compute_fixed_point(self.f, init,
+                                              error_tol=error_tol,
+                                              max_iter=max_iter, method=method,
+                                              print_skip=max_iter)
+            ok_(fp_computed <= error_tol * 2)
+
+    def test_2d_input(self):
+        error_tol = self.coeff**4
+
+        for method in self.methods:
+            init = np.array([[-1, 0.5], [-1/3, 0.1]])
+            fp_computed = compute_fixed_point(self.f, init,
+                                              error_tol=error_tol,
+                                              method=method)
+            ok_((fp_computed <= error_tol * 2).all())
+
+
+@raises(ValueError)
+def test_raises_value_error_nonpositive_max_iter():
+    f = lambda x: 0.5*x
+    init = 1.
+    max_iter = 0
+    fp = compute_fixed_point(f, init, max_iter=max_iter)

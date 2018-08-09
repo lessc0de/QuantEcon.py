@@ -1,8 +1,4 @@
 """
-Filename: robustlq.py
-
-Authors: Chase Coleman, Spencer Lyon, Thomas Sargent, John Stachurski
-
 Solves robust LQ control problems.
 
 """
@@ -16,14 +12,14 @@ from scipy.linalg import solve, inv, det
 from .matrix_eqn import solve_discrete_lyapunov
 
 
-class RBLQ(object):
+class RBLQ:
     r"""
     Provides methods for analysing infinite horizon robust LQ control
     problems of the form
 
     .. math::
 
-        min_{u_t}  sum_t beta^t {x_t' R x_t + u_t' Q u_t }
+        \min_{u_t}  \sum_t \beta^t {x_t' R x_t + u_t' Q u_t }
 
     subject to
 
@@ -74,6 +70,8 @@ class RBLQ(object):
         self.j = self.C.shape[1]
         # == Remaining parameters == #
         self.beta, self.theta = beta, theta
+        # == Check for case of no control (pure forecasting problem) == #
+        self.pure_forecasting = True if not Q.any() and not B.any() else False
 
     def __repr__(self):
         return self.__str__()
@@ -96,7 +94,7 @@ class RBLQ(object):
 
         .. math::
 
-            D(P) := P + PC(theta I - C'PC)^{-1} C'P.
+            D(P) := P + PC(\theta I - C'PC)^{-1} C'P.
 
         Parameters
         ----------
@@ -124,13 +122,13 @@ class RBLQ(object):
 
         .. math::
 
-            B(P) := R - beta^2 A'PB(Q + beta B'PB)^{-1}B'PA + beta A'PA
+            B(P) := R - \beta^2 A'PB(Q + \beta B'PB)^{-1}B'PA + \beta A'PA
 
         and also returning
 
         .. math::
 
-            F := (Q + beta B'PB)^{-1} beta B'PA
+            F := (Q + \beta B'PB)^{-1} \beta B'PA
 
         Parameters
         ----------
@@ -149,8 +147,8 @@ class RBLQ(object):
         S1 = Q + beta * dot(B.T, dot(P, B))
         S2 = beta * dot(B.T, dot(P, A))
         S3 = beta * dot(A.T, dot(P, A))
-        F = solve(S1, S2)
-        new_P = R - dot(S2.T, solve(S1, S2)) + S3
+        F = solve(S1, S2) if not self.pure_forecasting else np.zeros((self.k, self.n))
+        new_P = R - dot(S2.T, F) + S3
 
         return F, new_P
 
@@ -165,7 +163,7 @@ class RBLQ(object):
 
             u_t = - F x_t
 
-        And the value function is -x'Px
+        And the value function is :math:`-x'Px`
 
         Returns
         -------
@@ -186,14 +184,24 @@ class RBLQ(object):
         # == Set up LQ version == #
         I = identity(j)
         Z = np.zeros((k, j))
-        Ba = hstack([B, C])
-        Qa = vstack([hstack([Q, Z]), hstack([Z.T, -beta*I*theta])])
-        lq = LQ(Qa, R, A, Ba, beta=beta)
 
-        # == Solve and convert back to robust problem == #
-        P, f, d = lq.stationary_values()
-        F = f[:k, :]
-        K = -f[k:f.shape[0], :]
+        if self.pure_forecasting:
+            lq = LQ(-beta*I*theta, R, A, C, beta=beta)
+
+            # == Solve and convert back to robust problem == #
+            P, f, d = lq.stationary_values()
+            F = np.zeros((self.k, self.n))
+            K = -f[:k, :]
+
+        else:
+            Ba = hstack([B, C])
+            Qa = vstack([hstack([Q, Z]), hstack([Z.T, -beta*I*theta])])
+            lq = LQ(Qa, R, A, Ba, beta=beta)
+
+            # == Solve and convert back to robust problem == #
+            P, f, d = lq.stationary_values()
+            F = f[:k, :]
+            K = -f[k:f.shape[0], :]
 
         return F, K, P
 
@@ -299,10 +307,20 @@ class RBLQ(object):
         return F, P
 
     def compute_deterministic_entropy(self, F, K, x0):
-        """
+        r"""
 
         Given K and F, compute the value of deterministic entropy, which
-        is sum_t beta^t x_t' K'K x_t with x_{t+1} = (A - BF + CK) x_t.
+        is
+
+        .. math::
+
+            \sum_t \beta^t x_t' K'K x_t`
+
+        with
+
+        .. math::
+
+            x_{t+1} = (A - BF + CK) x_t
 
         Parameters
         ----------
@@ -328,9 +346,9 @@ class RBLQ(object):
 
     def evaluate_F(self, F):
         """
-        Given a fixed policy F, with the interpretation u = -F x, this
-        function computes the matrix P_F and constant d_F associated
-        with discounted cost J_F(x) = x' P_F x + d_F.
+        Given a fixed policy F, with the interpretation :math:`u = -F x`, this
+        function computes the matrix :math:`P_F` and constant :math:`d_F`
+        associated with discounted cost :math:`J_F(x) = x' P_F x + d_F`
 
         Parameters
         ----------

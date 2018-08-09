@@ -1,6 +1,4 @@
 """
-Filename: distributions.py
-
 Probability distributions useful in economics.
 
 References
@@ -14,7 +12,7 @@ import numpy as np
 from scipy.special import binom, beta
 
 
-class BetaBinomial(object):
+class BetaBinomial:
     """
     The Beta-Binomial distribution
 

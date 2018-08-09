@@ -1,8 +1,4 @@
-"""
-Filename: lae.py
-
-Authors: Thomas J. Sargent, John Stachurski,
-
+r"""
 Computes a sequence of marginal densities for a continuous state space
 Markov chain :math:`X_t` where the transition probabilities can be represented
 as densities. The estimate of the marginal density of :math:`X_t` is
@@ -11,19 +7,19 @@ as densities. The estimate of the marginal density of :math:`X_t` is
 
     \frac{1}{n} \sum_{i=0}^n p(X_{t-1}^i, y)
 
-This is a density in y.
+This is a density in :math:`y`.
 
 References
 ----------
 
-http://quant-econ.net/py/stationary_densities.html
+https://lectures.quantecon.org/py/stationary_densities.html
 
 """
 from textwrap import dedent
 import numpy as np
 
 
-class LAE(object):
+class LAE:
     """
     An instance is a representation of a look ahead estimator associated
     with a given stochastic kernel p and a vector of observations X.

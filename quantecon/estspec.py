@@ -1,8 +1,4 @@
 """
-Filename: estspec.py
-
-Authors: Thomas Sargent, John Stachurski
-
 Functions for working with periodograms of scalar data.
 
 """
@@ -10,7 +6,6 @@ Functions for working with periodograms of scalar data.
 from __future__ import division, print_function
 import numpy as np
 from numpy.fft import fft
-from pandas import ols, Series
 
 
 def smooth(x, window_len=7, window='hanning'):
@@ -75,17 +70,18 @@ def smooth(x, window_len=7, window='hanning'):
 
 
 def periodogram(x, window=None, window_len=7):
-    """
+    r"""
     Computes the periodogram
 
     .. math::
 
-        I(w) = (1 / n) | sum_{t=0}^{n-1} x_t e^{itw} |^2
+        I(w) = \frac{1}{n} \Big[ \sum_{t=0}^{n-1} x_t e^{itw} \Big] ^2
 
-    at the Fourier frequences w_j := 2 pi j / n, j = 0, ..., n - 1,
-    using the fast Fourier transform.  Only the frequences w_j in [0,
-    pi] and corresponding values I(w_j) are returned.  If a window type
-    is given then smoothing is performed.
+    at the Fourier frequences :math:`w_j := \frac{2 \pi j}{n}`,
+    :math:`j = 0, \dots, n - 1`, using the fast Fourier transform. Only the
+    frequences :math:`w_j` in :math:`[0, \pi]` and corresponding values
+    :math:`I(w_j)` are returned. If a window type is given then smoothing
+    is performed.
 
     Parameters
     ----------
@@ -140,11 +136,17 @@ def ar_periodogram(x, window='hanning', window_len=7):
 
     """
     # === run regression === #
-    x_current, x_lagged = x[1:], x[:-1]  # x_t and x_{t-1}
-    x_current, x_lagged = Series(x_current), Series(x_lagged)  # pandas series
-    results = ols(y=x_current, x=x_lagged, intercept=True, nw_lags=1)
-    e_hat = results.resid.values
-    phi = results.beta['x']
+    x_lag = x[:-1]  # lagged x
+    X = np.array([np.ones(len(x_lag)), x_lag]).T  # add constant
+
+    y = np.array(x[1:])  # current x
+
+    beta_hat = np.linalg.solve(X.T @ X, X.T @ y)  # solve for beta hat
+    e_hat = y - X @ beta_hat  # compute residuals
+    phi = beta_hat[1]  # pull out phi parameter
+
+    # === compute periodogram on residuals === #
+    w, I_w = periodogram(e_hat, window=window, window_len=window_len)
 
     # === compute periodogram on residuals === #
     w, I_w = periodogram(e_hat, window=window, window_len=window_len)
